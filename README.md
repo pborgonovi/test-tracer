@@ -1,6 +1,6 @@
 # test-tracer
 
-Automatically compares a markdown test plan against the requirements buried in linked GitHub issues, and tells you exactly what's covered, what's missing, and what's unclear.
+Automatically compares a markdown test plan against the requirements buried in linked GitHub issues — and surfaces what's covered, what's missing, and what needs a closer look.
 
 ---
 
