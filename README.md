@@ -4,39 +4,6 @@ Automatically compares a markdown test plan against the requirements buried in l
 
 ---
 
-## Problem
-
-On the Detection & Response team at Elastic, developers build automated tests for new features and write test plans in markdown files that live inside the Kibana repository alongside the code. As a QA professional on the team, reviewing these test plans means manually chasing down the linked epic, opening every referenced issue across multiple GitHub repositories, and cross-referencing requirements, edge cases, negative scenarios, and authorization scenarios against what the test plan actually covers. This process is time-consuming, error-prone, and easy to get wrong, especially when a single feature spans dozens of issues spread across `elastic/kibana`, `elastic/security-team`, and other repos.
-
----
-
-## Why It Matters
-
-QA Engineers and Developers on teams that use GitHub for planning and markdown files for test plans spend a disproportionate amount of time on this kind of review. The gap between "what we said we'd test" and "what we actually need to test" is rarely caught until something breaks in production. test-tracer closes that gap automatically on every PR.
-
----
-
-## Language Used
-
-JavaScript (Node.js).
-
-Built by a non-developer using [Cursor](https://cursor.com) and AI assistance. No prior Node.js or API integration experience was required, the entire project was scaffolded, debugged, and iterated through conversation with Cursor's Agent mode.
-
----
-
-## How Cursor Helped
-
-test-tracer was built entirely inside Cursor using Agent mode, no code was written by hand.
-
-Each phase of the project was tackled through a conversation:
-
-- **Scaffolding** — the CLI entry point, argument parsing, and URL validation were created by describing the desired behaviour in plain English. Cursor generated the initial structure and wired the pieces together.
-- **GitHub integration** — fetching PR file lists, reading blob contents, and crawling linked issues recursively were built by asking Cursor to implement each step, then iterating on edge cases like pagination, `lastIndex` bugs in regex, and base64 decoding.
-- **AI extraction** — the Gemini integration for extracting test scenarios and requirements was built by describing the prompt engineering goals, then refining the instructions iteratively until the output was structured and reliable.
-- **Coverage reporting** — the comparison logic and deduplication bugs (requirements appearing in two buckets simultaneously) were fixed by describing the expected behaviour and letting Cursor reason through the priority rules.
-
----
-
 ## How to Run
 
 ### Prerequisites
@@ -84,6 +51,16 @@ The tool will:
 
 ---
 
+## Important: How to interpret the results
+
+test-tracer is designed to be a first-pass analysis tool, not a definitive audit.
+
+Results are non-deterministic — because the tool relies on a Large Language Model, the same PR can produce slightly different classifications across runs. The `unclear` category exists precisely to flag items that need human judgment, not items that are definitively covered or missing.
+
+The real value is surfacing likely gaps quickly. What would take a reviewer hours to cross-reference manually happens in seconds. Always treat the `missing` and `unclear` buckets as starting points for human review, not as final verdicts.
+
+---
+
 ## Example Output
 
 ```
@@ -123,3 +100,36 @@ github.js      — GitHub REST API: fetch PR files, crawl linked issues recursiv
 extractor.js   — Gemini prompts: extract test scenarios and categorised requirements
 reporter.js    — Gemini prompt: compare scenarios vs requirements, classify coverage
 ```
+
+---
+
+## Problem
+
+On the Detection & Response team at Elastic, developers build automated tests for new features and write test plans in markdown files that live inside the Kibana repository alongside the code. As a QA professional on the team, reviewing these test plans means manually chasing down the linked epic, opening every referenced issue across multiple GitHub repositories, and cross-referencing requirements, edge cases, negative scenarios, and authorization scenarios against what the test plan actually covers. This process is time-consuming, error-prone, and easy to get wrong, especially when a single feature spans dozens of issues spread across `elastic/kibana`, `elastic/security-team`, and other repos.
+
+---
+
+## Why It Matters
+
+QA Engineers and Developers on teams that use GitHub for planning and markdown files for test plans spend a disproportionate amount of time on this kind of review. The gap between "what we said we'd test" and "what we actually need to test" is rarely caught until something breaks in production. test-tracer closes that gap automatically on every PR.
+
+---
+
+## Language Used
+
+JavaScript (Node.js).
+
+Built by a non-developer using [Cursor](https://cursor.com) and AI assistance. No prior Node.js or API integration experience was required, the entire project was scaffolded, debugged, and iterated through conversation with Cursor's Agent mode.
+
+---
+
+## How Cursor Helped
+
+test-tracer was built entirely inside Cursor using Agent mode, no code was written by hand.
+
+Each phase of the project was tackled through a conversation:
+
+- **Scaffolding** — the CLI entry point, argument parsing, and URL validation were created by describing the desired behaviour in plain English. Cursor generated the initial structure and wired the pieces together.
+- **GitHub integration** — fetching PR file lists, reading blob contents, and crawling linked issues recursively were built by asking Cursor to implement each step, then iterating on edge cases like pagination, `lastIndex` bugs in regex, and base64 decoding.
+- **AI extraction** — the Gemini integration for extracting test scenarios and requirements was built by describing the prompt engineering goals, then refining the instructions iteratively until the output was structured and reliable.
+- **Coverage reporting** — the comparison logic and deduplication bugs (requirements appearing in two buckets simultaneously) were fixed by describing the expected behaviour and letting Cursor reason through the priority rules.
