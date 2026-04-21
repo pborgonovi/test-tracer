@@ -32,11 +32,8 @@ Each phase of the project was tackled through a conversation:
 
 - **Scaffolding** — the CLI entry point, argument parsing, and URL validation were created by describing the desired behaviour in plain English. Cursor generated the initial structure and wired the pieces together.
 - **GitHub integration** — fetching PR file lists, reading blob contents, and crawling linked issues recursively were built by asking Cursor to implement each step, then iterating on edge cases like pagination, `lastIndex` bugs in regex, and base64 decoding.
-- **Debugging** — when the URL extractor was missing links, Cursor added targeted debug logging that printed raw file content and regex match counts before deduplication. The root cause (a stateful `g`-flag regex shared across loop iterations) was identified and fixed in the same session.
 - **AI extraction** — the Gemini integration for extracting test scenarios and requirements was built by describing the prompt engineering goals, then refining the instructions iteratively until the output was structured and reliable.
 - **Coverage reporting** — the comparison logic and deduplication bugs (requirements appearing in two buckets simultaneously) were fixed by describing the expected behaviour and letting Cursor reason through the priority rules.
-
-The entire codebase — around 600 lines across 5 files — was produced through approximately 25 back-and-forth messages.
 
 ---
 
