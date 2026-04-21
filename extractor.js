@@ -1,7 +1,7 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 
-const MODEL = 'gemini-2.0-flash';
-const MAX_TOKENS = 4096;
+const MODEL = 'gemini-3.1-pro-preview';
+const MAX_TOKENS = 8192;
 
 /**
  * Sends the test plan markdown files to Gemini and returns a consolidated
@@ -11,10 +11,10 @@ const MAX_TOKENS = 4096;
  * @returns {Promise<string[]>} Array of test scenario strings
  */
 async function extractScenarios(mdFiles) {
-  const model = buildModel();
+  const ai = buildClient();
   const prompt = buildScenariosPrompt(mdFiles);
-  const result = await generateWithRetry(model, prompt);
-  return parseJsonArray(result.response.text(), 'scenarios');
+  const result = await generateWithRetry(ai, prompt);
+  return parseJsonArray(result.text, 'scenarios');
 }
 
 /**
@@ -51,16 +51,20 @@ function buildScenariosPrompt(mdFiles) {
 }
 
 /**
- * Calls model.generateContent with automatic retry on 429 rate-limit errors.
+ * Calls ai.models.generateContent with automatic retry on 429 rate-limit errors.
  * Uses exponential backoff: 10s after attempt 1, 30s after attempt 2, 60s after attempt 3.
  */
-async function generateWithRetry(model, prompt) {
+async function generateWithRetry(ai, prompt) {
   const MAX_RETRIES = 3;
   const DELAYS_MS = [10_000, 30_000, 60_000];
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await model.generateContent(prompt);
+      return await ai.models.generateContent({
+        model: MODEL,
+        contents: prompt,
+        config: { maxOutputTokens: MAX_TOKENS },
+      });
     } catch (err) {
       const isRateLimit =
         err.status === 429 ||
@@ -81,39 +85,64 @@ async function generateWithRetry(model, prompt) {
 }
 
 /**
- * Shared helper: creates a Gemini model instance.
+ * Shared helper: creates a Gemini client. Reads GEMINI_API_KEY from the environment.
  */
-function buildModel() {
+function buildClient() {
   if (!process.env.GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY environment variable is not set.');
   }
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  return genAI.getGenerativeModel({
-    model: MODEL,
-    generationConfig: { maxOutputTokens: MAX_TOKENS },
-  });
+  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 }
 
 /**
  * Shared helper: parses a JSON array of strings from Gemini's response.
  * Handles optional markdown code fences around the JSON.
+ * If the JSON is truncated, recovers all complete string items found so far
+ * and logs a warning rather than throwing.
  */
 function parseJsonArray(raw, label) {
   const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   const jsonText = fenceMatch ? fenceMatch[1].trim() : raw.trim();
 
-  let parsed;
+  // Fast path: valid JSON
   try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    throw new Error(`Gemini returned a response that could not be parsed as JSON (${label}):\n${raw}`);
+    const parsed = JSON.parse(jsonText);
+    if (!Array.isArray(parsed)) {
+      throw new Error(`Expected a JSON array from Gemini (${label}), got: ${typeof parsed}`);
+    }
+    return parsed.filter((item) => typeof item === 'string' && item.trim().length > 0);
+  } catch (err) {
+    if (err.message.startsWith('Expected a JSON array')) throw err;
   }
 
-  if (!Array.isArray(parsed)) {
-    throw new Error(`Expected a JSON array from Gemini (${label}), got: ${typeof parsed}`);
+  // Recovery path: extract every complete quoted string from the truncated text
+  const items = extractCompleteStrings(jsonText);
+  if (items.length > 0) {
+    console.warn(
+      `  Warning: response for "${label}" appears truncated — recovered ${items.length} item(s) from partial JSON.`
+    );
+    return items;
   }
 
-  return parsed.filter((item) => typeof item === 'string' && item.trim().length > 0);
+  throw new Error(`Gemini returned a response that could not be parsed as JSON (${label}):\n${raw}`);
+}
+
+/**
+ * Extracts all complete JSON-encoded strings from arbitrary text.
+ * Used to salvage items from a truncated JSON array.
+ */
+function extractCompleteStrings(text) {
+  const items = [];
+  const pattern = /"((?:[^"\\]|\\.)*)"/g;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    try {
+      items.push(JSON.parse(match[0]));
+    } catch {
+      // skip malformed entries
+    }
+  }
+  return items.filter((s) => typeof s === 'string' && s.trim().length > 0);
 }
 
 /**
@@ -125,10 +154,10 @@ function parseJsonArray(raw, label) {
  * @returns {Promise<string[]>} Array of requirement strings
  */
 async function extractRequirements(artifacts) {
-  const model = buildModel();
+  const ai = buildClient();
   const prompt = buildRequirementsPrompt(artifacts);
-  const result = await generateWithRetry(model, prompt);
-  return parseJsonArray(result.response.text(), 'requirements');
+  const result = await generateWithRetry(ai, prompt);
+  return parseJsonArray(result.text, 'requirements');
 }
 
 /**

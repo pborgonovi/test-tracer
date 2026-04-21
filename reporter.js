@@ -1,19 +1,23 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 
-const MODEL = 'gemini-2.0-flash';
-const MAX_TOKENS = 4096;
+const MODEL = 'gemini-3.1-pro-preview';
+const MAX_TOKENS = 8192;
 
 /**
- * Calls model.generateContent with automatic retry on 429 rate-limit errors.
+ * Calls ai.models.generateContent with automatic retry on 429 rate-limit errors.
  * Uses exponential backoff: 10s after attempt 1, 30s after attempt 2, 60s after attempt 3.
  */
-async function generateWithRetry(model, prompt) {
+async function generateWithRetry(ai, prompt) {
   const MAX_RETRIES = 3;
   const DELAYS_MS = [10_000, 30_000, 60_000];
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await model.generateContent(prompt);
+      return await ai.models.generateContent({
+        model: MODEL,
+        contents: prompt,
+        config: { maxOutputTokens: MAX_TOKENS },
+      });
     } catch (err) {
       const isRateLimit =
         err.status === 429 ||
@@ -50,15 +54,11 @@ async function generateReport(scenarios, requirements) {
     return { covered: [], missing: [], unclear: [] };
   }
 
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({
-    model: MODEL,
-    generationConfig: { maxOutputTokens: MAX_TOKENS },
-  });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   const prompt = buildReportPrompt(scenarios, requirements);
-  const result = await generateWithRetry(model, prompt);
-  const raw = result.response.text();
+  const result = await generateWithRetry(ai, prompt);
+  const raw = result.text;
 
   return parseReport(raw, requirements);
 }
@@ -70,19 +70,54 @@ function buildReportPrompt(scenarios, requirements) {
   const sections = [];
 
   sections.push(
-    'You are a QA engineer performing a test coverage analysis.',
+    'You are a Senior QA Engineer performing a test coverage analysis.',
     '',
     'You are given two lists:',
     '1. **Test Scenarios** — what is currently covered by the test plan.',
     '2. **Requirements** — what the feature or fix is supposed to do, based on linked issues and PRs.',
     '',
-    'Your task is to classify **each requirement** into exactly one of three categories:',
-    '- **COVERED**: there is at least one test scenario that clearly addresses this requirement.',
-    '- **MISSING**: no test scenario addresses this requirement.',
-    '- **UNCLEAR**: a scenario partially addresses it or the mapping is ambiguous.',
+    'Your task is to classify **each requirement** into exactly one of three categories.',
+    'Read the classification rules carefully — the bar for COVERED is intentionally generous:',
+    '',
+    '## Classification Rules',
+    '',
+    '**COVERED** — use this when any scenario in the test plan tests the same underlying behavior,',
+    'even if the wording is completely different. Do not require an exact or near-exact phrase match.',
+    'If a scenario would catch a regression in this requirement, it is COVERED.',
+    '',
+    '**MISSING** — use this only when there is genuinely no scenario that touches this behavior at all.',
+    'If a requirement is about a feature, error case, or user action and no scenario comes close, it is MISSING.',
+    '',
+    '**UNCLEAR** — use this only when a scenario partially covers the requirement but leaves part of it',
+    'untested, or when the mapping is genuinely ambiguous and you cannot confidently choose COVERED or MISSING.',
+    'Do not use UNCLEAR as a default — only use it when partial coverage is evident.',
+    '',
+    '## Classification Examples',
+    '',
+    'Requirement: "[FUNCTIONAL] A user can submit a search query and see matching results"',
+    'Scenario: "Verify that entering a keyword in the search bar returns a filtered list of results"',
+    '→ COVERED — same behavior, different wording.',
+    '',
+    'Requirement: "[NEGATIVE] Submitting an empty search query shows a validation error"',
+    'Scenario: "Verify that the search bar shows an error message when submitted without input"',
+    '→ COVERED — semantically identical.',
+    '',
+    'Requirement: "[AUTH] A read-only user cannot delete a record"',
+    'Scenario: "Verify that the delete button is hidden for users with viewer permissions"',
+    '→ COVERED — the scenario validates the authorization constraint.',
+    '',
+    'Requirement: "[EDGE CASE] Search results are paginated when more than 50 results are returned"',
+    'Scenario: "Verify that search results display correctly"',
+    '→ UNCLEAR — the scenario touches search results but does not test pagination specifically.',
+    '',
+    'Requirement: "[ERROR] If the API times out, the UI shows a user-friendly error banner"',
+    '(no scenario mentions API failures or timeouts)',
+    '→ MISSING — no scenario tests this behavior.',
+    '',
+    '## Output Format',
     '',
     'Return your answer as a JSON object with exactly three keys: "covered", "missing", "unclear".',
-    'Each key maps to an array of requirement strings (copied verbatim from the requirements list).',
+    'Each key maps to an array of requirement strings copied verbatim from the requirements list.',
     'Every requirement must appear in exactly one array. Do not add any text outside the JSON object.',
     '',
     'Example output format:',
@@ -111,19 +146,20 @@ function buildReportPrompt(scenarios, requirements) {
 
 /**
  * Parses the JSON report from Gemini's response.
- * Falls back to placing all requirements in "unclear" if parsing fails.
+ * If the JSON is truncated, recovers whatever complete bucket arrays are present
+ * and logs a warning. Any requirements not classified are placed in unclear.
  */
 function parseReport(raw, requirements) {
   const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   const jsonText = fenceMatch ? fenceMatch[1].trim() : raw.trim();
 
   let parsed;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    throw new Error(
-      `Gemini returned a response that could not be parsed as JSON:\n${raw}`
-    );
+  const isClean = tryParse(jsonText, (result) => { parsed = result; });
+
+  if (!isClean) {
+    // Recovery: extract each bucket's strings independently from the partial text
+    console.warn('  Warning: report response appears truncated — recovering partial classification.');
+    parsed = recoverTruncatedObject(jsonText);
   }
 
   const normalize = (val) =>
@@ -139,19 +175,59 @@ function parseReport(raw, requirements) {
   let unclear = normalize(parsed.unclear);
 
   // Enforce strict single-bucket membership: covered > missing > unclear.
-  // If a requirement appears in multiple buckets, the highest-priority one wins.
   const inCovered = new Set(covered);
   missing = missing.filter((r) => !inCovered.has(r));
   const inMissing = new Set(missing);
   unclear = unclear.filter((r) => !inCovered.has(r) && !inMissing.has(r));
 
-  // Ensure every requirement appears in exactly one bucket — anything Gemini
-  // dropped goes into unclear so nothing is silently lost.
+  // Anything Gemini dropped goes into unclear so nothing is silently lost.
   const classified = new Set([...covered, ...missing, ...unclear]);
   const dropped = requirements.filter((r) => !classified.has(r));
   unclear.push(...dropped);
 
   return { covered, missing, unclear };
+}
+
+/**
+ * Attempts JSON.parse; calls setter with result and returns true on success.
+ */
+function tryParse(text, setter) {
+  try {
+    setter(JSON.parse(text));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Extracts the covered/missing/unclear arrays from a truncated JSON object
+ * by scanning each bucket's section independently for complete quoted strings.
+ */
+function recoverTruncatedObject(text) {
+  const result = { covered: [], missing: [], unclear: [] };
+
+  for (const key of ['covered', 'missing', 'unclear']) {
+    // Match from the key's "[" to the next top-level key or end of string
+    const sectionMatch = text.match(
+      new RegExp(`"${key}"\\s*:\\s*\\[([\\s\\S]*?)(?=\\s*"(?:covered|missing|unclear)"\\s*:|$)`)
+    );
+    if (!sectionMatch) continue;
+
+    const section = sectionMatch[1];
+    const pattern = /"((?:[^"\\]|\\.)*)"/g;
+    let m;
+    while ((m = pattern.exec(section)) !== null) {
+      try {
+        const str = JSON.parse(m[0]);
+        if (typeof str === 'string' && str.trim()) result[key].push(str);
+      } catch {
+        // skip malformed entries
+      }
+    }
+  }
+
+  return result;
 }
 
 module.exports = { generateReport };
