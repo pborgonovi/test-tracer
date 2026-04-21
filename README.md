@@ -1,12 +1,12 @@
 # test-tracer
 
-Automatically compares a markdown test plan against the requirements buried in linked GitHub issues — and tells you exactly what's covered, what's missing, and what's unclear.
+Automatically compares a markdown test plan against the requirements buried in linked GitHub issues, and tells you exactly what's covered, what's missing, and what's unclear.
 
 ---
 
 ## Problem
 
-On the Detection & Response team at Elastic, developers build automated tests for new features and write test plans in markdown files that live inside the Kibana repository alongside the code. As a QA professional on the team, reviewing these test plans means manually chasing down the linked epic, opening every referenced issue across multiple GitHub repositories, and cross-referencing requirements, edge cases, negative scenarios, and authorization scenarios against what the test plan actually covers. This process is time-consuming, error-prone, and easy to get wrong — especially when a single feature spans dozens of issues spread across `elastic/kibana`, `elastic/security-team`, and other repos.
+On the Detection & Response team at Elastic, developers build automated tests for new features and write test plans in markdown files that live inside the Kibana repository alongside the code. As a QA professional on the team, reviewing these test plans means manually chasing down the linked epic, opening every referenced issue across multiple GitHub repositories, and cross-referencing requirements, edge cases, negative scenarios, and authorization scenarios against what the test plan actually covers. This process is time-consuming, error-prone, and easy to get wrong, especially when a single feature spans dozens of issues spread across `elastic/kibana`, `elastic/security-team`, and other repos.
 
 ---
 
@@ -20,13 +20,13 @@ QA Engineers and Developers on teams that use GitHub for planning and markdown f
 
 JavaScript (Node.js).
 
-Built by a non-developer using [Cursor](https://cursor.com) and AI assistance. No prior Node.js or API integration experience was required — the entire project was scaffolded, debugged, and iterated through conversation with Cursor's Agent mode.
+Built by a non-developer using [Cursor](https://cursor.com) and AI assistance. No prior Node.js or API integration experience was required, the entire project was scaffolded, debugged, and iterated through conversation with Cursor's Agent mode.
 
 ---
 
 ## How Cursor Helped
 
-test-tracer was built entirely inside Cursor using Agent mode — no code was written by hand.
+test-tracer was built entirely inside Cursor using Agent mode, no code was written by hand.
 
 Each phase of the project was tackled through a conversation:
 
